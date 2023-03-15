@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -164,4 +165,70 @@ func (m MovieModel) Delete(id int64) error {
 		return ErrRecordNotFound
 	}
 	return nil
+}
+
+func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
+	query := fmt.Sprintf(`
+		SELECT t.total_count, id, created_at, title, year, runtime, genres, version 
+		FROM movies
+		JOIN (
+			SELECT COUNT(*) AS total_count
+			FROM movies
+		) t
+		WHERE (LOWER(title) = LOWER(?)) OR (? = '')
+		AND (FIND_IN_SET(?, genres) OR ? = '')
+		ORDER BY %s %s, id ASC
+		LIMIT ? OFFSET ?;
+	`, filters.sortColumn(), filters.sortDirection())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	firstGenre := ""
+	if len(genres) > 0 {
+		firstGenre = genres[0]
+	}
+	rows, err := m.DB.QueryContext(ctx, query, title, title, firstGenre, firstGenre, filters.limit(), filters.offset())
+	if err != nil {
+		return nil, Metadata{}, err
+	}
+	defer rows.Close()
+	movies := []*Movie{}
+	totalRecords := 0
+	for rows.Next() {
+		var movie Movie
+		tmp := struct {
+			ID        int64
+			CreatedAt time.Time
+			Title     string
+			Year      int32
+			Runtime   int32
+			Genres    string
+			Version   int32
+		}{}
+		err := rows.Scan(
+			&totalRecords,
+			&tmp.ID,
+			&tmp.CreatedAt,
+			&tmp.Title,
+			&tmp.Year,
+			&tmp.Runtime,
+			&tmp.Genres,
+			&tmp.Version,
+		)
+		movie.ID = tmp.ID
+		movie.CreatedAt = tmp.CreatedAt
+		movie.Title = tmp.Title
+		movie.Year = tmp.Year
+		movie.Runtime = Runtime(tmp.Runtime)
+		movie.Genres = strings.Split(tmp.Genres, ",")
+		movie.Version = tmp.Version
+		if err != nil {
+			return nil, Metadata{}, err
+		}
+		movies = append(movies, &movie)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, Metadata{}, err
+	}
+	metadata := calculateMetadata(totalRecords, filters.Page, filters.PageSize)
+	return movies, metadata, err
 }
