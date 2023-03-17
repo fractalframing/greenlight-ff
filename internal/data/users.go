@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/fractalframing/greenlight-ff/internal/validator"
@@ -87,15 +88,20 @@ func (m UserModel) Insert(user *User) error {
 	`
 	selectQuery := `
 		SELECT LAST_INSERT_ID() as id, created_at, version
-		FROM movies
+		FROM users
 		WHERE id = LAST_INSERT_ID();
 	`
 	args := []any{user.Name, user.Email, user.Password.hash, user.Activated}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err := m.DB.ExecContext(ctx, query, args...)
 	if err != nil {
-		return err
+		switch {
+		case strings.HasPrefix(err.Error(), "Error 1062"):
+			return ErrDuplicateEmail
+		default:
+			return err
+		}
 	}
 	row := m.DB.QueryRowContext(ctx, selectQuery)
 	if err := row.Scan(&user.ID, &user.CreatedAt, &user.Version); err != nil {
