@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"flag"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -55,11 +54,11 @@ type application struct {
 }
 
 func main() {
+	logger := jsonlog.New(os.Stdout, jsonlog.LevelInfo)
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		logger.PrintFatal(err, nil)
 	}
-
 	var cfg config
 	var smtpPort int
 	smtpPort, err = strconv.Atoi(os.Getenv("MAILTRAP_PORT"))
@@ -86,7 +85,6 @@ func main() {
 	})
 	flag.Parse()
 
-	logger := jsonlog.New(os.Stdout, jsonlog.LevelInfo)
 	db, err := openDB(cfg)
 	if err != nil {
 		logger.PrintFatal(err, nil)
